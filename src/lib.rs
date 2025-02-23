@@ -1,5 +1,5 @@
 use futures::stream::StreamExt;
-use tokio::sync::mpsc::{channel, Receiver};
+use tokio::sync::mpsc::{channel, Receiver, Sender};
 use derive_builder::Builder;
 use log::error;
 use reqwest::Client;
@@ -39,7 +39,7 @@ pub async fn query_agent(args: &QueryAgentArgs) -> Result<Receiver<String>, Quer
     let mut event_source = EventSource::new(request_builder).map_err(QueryAgentError::EventSourceCreation)?;
     let (initial_result_tx, initial_result_rx) = tokio::sync::oneshot::channel::<Result<(), QueryAgentError>>();
     tokio::spawn(async move {
-        let mut initial_result = Ok(());
+        let mut initial_result_tx_opt: Option<tokio::sync::oneshot::Sender<Result<(), QueryAgentError>>> = Some(initial_result_tx);
         while let Some(event) = event_source.next().await {
             let token = match event {
                 Ok(Event::Message(m)) => {
@@ -50,7 +50,9 @@ pub async fn query_agent(args: &QueryAgentArgs) -> Result<Receiver<String>, Quer
                     }
                 }
                 Err(e) => {
-                    initial_result = Err(QueryAgentError::EventSource(e));
+                    if let Some(tx) = initial_result_tx_opt.take() {
+                        tx.send(Err(QueryAgentError::EventSource(e))).unwrap();
+                    }
                     event_source.close();
                     break;
                 }
@@ -62,8 +64,10 @@ pub async fn query_agent(args: &QueryAgentArgs) -> Result<Receiver<String>, Quer
                 error!("{e:#?}");
                 break;
             }
+            if let Some(tx) = initial_result_tx_opt.take() {
+                tx.send(Ok(())).unwrap();
+            }
         }
-        initial_result_tx.send(initial_result).unwrap();
     });
     initial_result_rx.await.unwrap()?;
     Ok(rx)
