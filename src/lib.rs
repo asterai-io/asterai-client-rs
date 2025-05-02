@@ -13,13 +13,13 @@ const SSE_DATA_PREFIX_LLM_TOKEN: &str = "llm-token: ";
 
 #[derive(Debug, Builder, Clone, Eq, PartialEq, Hash)]
 pub struct QueryAgentArgs {
-    content: String,
-    agent_id: String,
-    query_key: String,
+    pub content: String,
+    pub agent_id: String,
+    pub query_key: String,
     #[builder(default)]
-    conversation_id: Option<String>,
+    pub conversation_id: Option<String>,
     #[builder(default)]
-    api_base_url: Option<String>,
+    pub api_base_url: Option<String>,
 }
 
 #[derive(Debug, Error)]
