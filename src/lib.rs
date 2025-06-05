@@ -1,5 +1,6 @@
+use std::time::Duration;
 use futures::stream::StreamExt;
-use tokio::sync::mpsc::{channel, Receiver, Sender};
+use tokio::sync::mpsc::{channel, Receiver};
 use derive_builder::Builder;
 use log::error;
 use reqwest::Client;
@@ -10,6 +11,7 @@ const CHANNEL_BUFFER: usize = 16;
 const API_BASE_URL: &str = "https://api.asterai.io";
 // This can actually be any UUID at the moment.
 const SSE_DATA_PREFIX_LLM_TOKEN: &str = "llm-token: ";
+const TIMEOUT: Duration = Duration::from_secs(180);
 
 #[derive(Debug, Builder, Clone, Eq, PartialEq, Hash)]
 pub struct QueryAgentArgs {
@@ -35,6 +37,7 @@ pub async fn query_agent(args: &QueryAgentArgs) -> Result<Receiver<String>, Quer
     let request_builder = Client::new()
         .post(get_endpoint(&args.agent_id, args.conversation_id.as_deref(), args.api_base_url.as_deref()))
         .header("authorization", args.query_key.clone())
+        .timeout(TIMEOUT)
         .body(args.content.to_owned());
     let mut event_source = EventSource::new(request_builder).map_err(QueryAgentError::EventSourceCreation)?;
     let (initial_result_tx, initial_result_rx) = tokio::sync::oneshot::channel::<Result<(), QueryAgentError>>();
