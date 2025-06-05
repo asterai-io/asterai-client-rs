@@ -22,6 +22,8 @@ pub struct QueryAgentArgs {
     pub conversation_id: Option<String>,
     #[builder(default)]
     pub api_base_url: Option<String>,
+    #[builder(default)]
+    pub timeout: Option<Duration>,
 }
 
 #[derive(Debug, Error)]
@@ -37,7 +39,7 @@ pub async fn query_agent(args: &QueryAgentArgs) -> Result<Receiver<String>, Quer
     let request_builder = Client::new()
         .post(get_endpoint(&args.agent_id, args.conversation_id.as_deref(), args.api_base_url.as_deref()))
         .header("authorization", args.query_key.clone())
-        .timeout(TIMEOUT)
+        .timeout(args.timeout.unwrap_or(TIMEOUT))
         .body(args.content.to_owned());
     let mut event_source = EventSource::new(request_builder).map_err(QueryAgentError::EventSourceCreation)?;
     let (initial_result_tx, initial_result_rx) = tokio::sync::oneshot::channel::<Result<(), QueryAgentError>>();
