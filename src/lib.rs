@@ -3,6 +3,7 @@ use futures::stream::StreamExt;
 use log::error;
 use reqwest::Client;
 use reqwest_eventsource::{Event, EventSource};
+use serde::Deserialize;
 use std::time::Duration;
 use thiserror::Error;
 use tokio::sync::mpsc::{channel, Receiver};
@@ -11,6 +12,7 @@ const CHANNEL_BUFFER: usize = 16;
 const API_BASE_URL: &str = "https://api.asterai.io";
 // This can actually be any UUID at the moment.
 const SSE_DATA_PREFIX_LLM_TOKEN: &str = "llm-token: ";
+const SSE_DATA_PREFIX_PLUGIN_OUTPUT: &str = "plugin-output: ";
 const TIMEOUT: Duration = Duration::from_secs(180);
 
 #[derive(Debug, Builder, Clone, Eq, PartialEq, Hash)]
@@ -36,6 +38,38 @@ pub enum QueryAgentError {
 
 pub async fn query_agent(args: &QueryAgentArgs) -> Result<Receiver<String>, QueryAgentError> {
     let (tx, rx) = channel(CHANNEL_BUFFER);
+    let mut event_rx = query_agent_with_events(args).await?;
+    while let Some(event) = event_rx.recv().await {
+        match event {
+            AppEvent::LlmToken(token) => {
+                if let Err(e) = tx.send(token).await {
+                    error!("{e:#?}");
+                    break;
+                }
+            }
+            _ => {}
+        }
+    }
+    Ok(rx)
+}
+
+#[derive(Debug, Eq, PartialEq, Clone)]
+pub enum AppEvent {
+    LlmToken(String),
+    PluginOutput(PluginOutput),
+}
+
+#[derive(Debug, Eq, PartialEq, Clone, Deserialize)]
+pub struct PluginOutput {
+    pub plugin: String,
+    pub function: String,
+    pub value: serde_json::Value,
+}
+
+pub async fn query_agent_with_events(
+    args: &QueryAgentArgs,
+) -> Result<Receiver<AppEvent>, QueryAgentError> {
+    let (tx, rx) = channel(CHANNEL_BUFFER);
     let request_builder = Client::new()
         .post(get_endpoint(
             &args.agent_id,
@@ -54,10 +88,22 @@ pub async fn query_agent(args: &QueryAgentArgs) -> Result<Receiver<String>, Quer
             tokio::sync::oneshot::Sender<Result<(), QueryAgentError>>,
         > = Some(initial_result_tx);
         while let Some(event) = event_source.next().await {
-            let token = match event {
+            let app_event = match event {
                 Ok(Event::Message(m)) => {
                     if m.data.starts_with(SSE_DATA_PREFIX_LLM_TOKEN) {
-                        m.data[SSE_DATA_PREFIX_LLM_TOKEN.len()..].to_owned()
+                        let llm_token = m.data[SSE_DATA_PREFIX_LLM_TOKEN.len()..].to_owned();
+                        AppEvent::LlmToken(llm_token)
+                    } else if m.data.starts_with(SSE_DATA_PREFIX_PLUGIN_OUTPUT) {
+                        let serialized_plugin_output =
+                            m.data[SSE_DATA_PREFIX_PLUGIN_OUTPUT.len()..].to_owned();
+                        let Ok(plugin_output) = serde_json::from_str(&serialized_plugin_output)
+                        else {
+                            error!(
+                                "failed to deserialize plugin output: {serialized_plugin_output}"
+                            );
+                            continue;
+                        };
+                        AppEvent::PluginOutput(plugin_output)
                     } else {
                         continue;
                     }
@@ -73,7 +119,7 @@ pub async fn query_agent(args: &QueryAgentArgs) -> Result<Receiver<String>, Quer
                     continue;
                 }
             };
-            if let Err(e) = tx.send(token).await {
+            if let Err(e) = tx.send(app_event).await {
                 error!("{e:#?}");
                 break;
             }
