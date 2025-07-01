@@ -3,6 +3,7 @@ name = "asterai"
 version = "0.1.0"
 edition = "2021"
 license = "MIT"
+description = "client library for asterai"
 
 [dependencies]
 reqwest = "0.12.12"
