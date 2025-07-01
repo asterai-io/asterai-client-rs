@@ -1,11 +1,11 @@
-use std::time::Duration;
-use futures::stream::StreamExt;
-use tokio::sync::mpsc::{channel, Receiver};
 use derive_builder::Builder;
+use futures::stream::StreamExt;
 use log::error;
 use reqwest::Client;
 use reqwest_eventsource::{Event, EventSource};
+use std::time::Duration;
 use thiserror::Error;
+use tokio::sync::mpsc::{channel, Receiver};
 
 const CHANNEL_BUFFER: usize = 16;
 const API_BASE_URL: &str = "https://api.asterai.io";
@@ -37,14 +37,22 @@ pub enum QueryAgentError {
 pub async fn query_agent(args: &QueryAgentArgs) -> Result<Receiver<String>, QueryAgentError> {
     let (tx, rx) = channel(CHANNEL_BUFFER);
     let request_builder = Client::new()
-        .post(get_endpoint(&args.agent_id, args.conversation_id.as_deref(), args.api_base_url.as_deref()))
+        .post(get_endpoint(
+            &args.agent_id,
+            args.conversation_id.as_deref(),
+            args.api_base_url.as_deref(),
+        ))
         .header("authorization", args.query_key.clone())
         .timeout(args.timeout.unwrap_or(TIMEOUT))
         .body(args.content.to_owned());
-    let mut event_source = EventSource::new(request_builder).map_err(QueryAgentError::EventSourceCreation)?;
-    let (initial_result_tx, initial_result_rx) = tokio::sync::oneshot::channel::<Result<(), QueryAgentError>>();
+    let mut event_source =
+        EventSource::new(request_builder).map_err(QueryAgentError::EventSourceCreation)?;
+    let (initial_result_tx, initial_result_rx) =
+        tokio::sync::oneshot::channel::<Result<(), QueryAgentError>>();
     tokio::spawn(async move {
-        let mut initial_result_tx_opt: Option<tokio::sync::oneshot::Sender<Result<(), QueryAgentError>>> = Some(initial_result_tx);
+        let mut initial_result_tx_opt: Option<
+            tokio::sync::oneshot::Sender<Result<(), QueryAgentError>>,
+        > = Some(initial_result_tx);
         while let Some(event) = event_source.next().await {
             let token = match event {
                 Ok(Event::Message(m)) => {
