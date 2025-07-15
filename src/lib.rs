@@ -39,17 +39,19 @@ pub enum QueryAgentError {
 pub async fn query_agent(args: &QueryAgentArgs) -> Result<Receiver<String>, QueryAgentError> {
     let (tx, rx) = channel(CHANNEL_BUFFER);
     let mut event_rx = query_agent_with_events(args).await?;
-    while let Some(event) = event_rx.recv().await {
-        match event {
-            AppEvent::LlmToken(token) => {
-                if let Err(e) = tx.send(token).await {
-                    error!("{e:#?}");
-                    break;
+    tokio::spawn(async move {
+        while let Some(event) = event_rx.recv().await {
+            match event {
+                AppEvent::LlmToken(token) => {
+                    if let Err(e) = tx.send(token).await {
+                        error!("{e:#?}");
+                        break;
+                    }
                 }
+                _ => {}
             }
-            _ => {}
         }
-    }
+    });
     Ok(rx)
 }
 
