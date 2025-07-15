@@ -3,7 +3,7 @@ use futures::stream::StreamExt;
 use log::error;
 use reqwest::Client;
 use reqwest_eventsource::{Event, EventSource};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::time::Duration;
 use thiserror::Error;
 use tokio::sync::mpsc::{channel, Receiver};
@@ -53,13 +53,13 @@ pub async fn query_agent(args: &QueryAgentArgs) -> Result<Receiver<String>, Quer
     Ok(rx)
 }
 
-#[derive(Debug, Eq, PartialEq, Clone)]
+#[derive(Debug, Eq, PartialEq, Clone, Serialize)]
 pub enum AppEvent {
     LlmToken(String),
     PluginOutput(PluginOutput),
 }
 
-#[derive(Debug, Eq, PartialEq, Clone, Deserialize)]
+#[derive(Debug, Eq, PartialEq, Clone, Deserialize, Serialize)]
 pub struct PluginOutput {
     pub plugin: String,
     pub function: String,
